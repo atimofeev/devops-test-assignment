@@ -1,0 +1,45 @@
+#+title: Assignment Solution
+* Table of Contents :toc:
+- [[#fixing-nodejs-app][Fixing NodeJS app]]
+
+* Fixing NodeJS app
+- Original dockerfile ::
+#+begin_src dockerfile
+FROM nginx:latest
+
+RUN apt-get upddate && apt-get install -y nodejs
+
+# WORKDIR /app
+
+COPY package*.json ./
+COPY index.js ./
+
+CMD "node index.js"
+#+end_src
+
+- Changes ::
+  1. Uncommented ~WORKDIR~ directive, path updated
+  2. ~CMD~ directive: use proper JSON notation
+  3. Fixed typo in ~RUN~ directive
+  4. ~EXPOSE~ app port
+  5. Pin image and package tags to specific versions
+  6. Merged two ~COPY~ directives into one
+
+- Updated dockerfile ::
+#+begin_src dockerfile :tangle nodejs-app/Dockerfile
+FROM nginx:1.25.3
+
+RUN apt-get update && \
+    apt-get install -y nodejs=18.13.0+dfsg1-1
+
+WORKDIR /usr/src/app
+
+COPY package*.json index.js ./
+
+EXPOSE 3000
+
+CMD ["node", "index.js"]
+#+end_src
+
+- Success message ::
+[[file:nodejs-app/success.png]]
