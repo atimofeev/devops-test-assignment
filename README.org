@@ -1,6 +1,7 @@
 #+title: Assignment Solution
 * Table of Contents :toc:
 - [[#fixing-nodejs-app][Fixing NodeJS app]]
+- [[#k8s-deployment][K8s Deployment]]
 
 * Fixing NodeJS app
 - Original dockerfile ::
@@ -42,4 +43,165 @@ CMD ["node", "index.js"]
 #+end_src
 
 - Success message ::
-[[file:nodejs-app/success.png]]
+[[file:nodejs-app/img/success.png]]
+
+* K8s Deployment
+- Description ::
+  - This is a deployment of a very simple ~nginx~ app
+  - It scales under load from 2 up to 4 replicas
+  - It uses persistent volume to store index.html file
+  - It's available on ~demo.local~ address via Ingress
+
+- Initialize Storage ::
+#+begin_src yaml :tangle k8s-deploy/init-storage.yaml
+apiVersion: v1
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: my-storage-class
+provisioner: k8s.io/minikube-hostpath
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nginx-data
+spec:
+  storageClassName: my-storage-class
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/tmp/kube-data/pv0001"
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nginx-data
+spec:
+  storageClassName: my-storage-class
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500M
+#+end_src
+
+- Deploy Application ::
+#+begin_src yaml :tangle k8s-deploy/deploy-app.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:stable
+        ports:
+        - containerPort: 80
+          name: http-port
+        resources:
+          requests:
+            cpu: "100m"
+          limits:
+            cpu: "200m"
+        volumeMounts:
+        - mountPath: /usr/share/nginx/html
+          name: nginx-data
+      volumes:
+      - name: nginx-data
+        persistentVolumeClaim:
+          claimName: nginx-data
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+spec:
+  type: ClusterIP
+  selector:
+    app: nginx
+  ports:
+  - name: http-port
+    protocol: TCP
+    port: 8080
+    targetPort: http-port
+
+---
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nginx-ingress
+  namespace: default
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: demo.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: nginx-service
+            port:
+              number: 8080
+
+---
+
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: nginx-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: nginx
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 15
+#+end_src
+
+- Apply custom index.html ::
+#+begin_src sh
+kubectl cp k8s-deploy/index.html <pod>:/usr/share/nginx/html/
+#+end_src
+
+- Apply load ::
+#+begin_src yaml :tangle k8s-deploy/apply-load-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: apply-load-job
+spec:
+  template:
+    spec:
+      containers:
+      - name: apply-load
+        image: busybox
+        command:
+        - /bin/sh
+        - -c
+        - "while true; do wget -q -O- http://demo.local; done"
+      restartPolicy: Never
+  backoffLimit: 4
+#+end_src

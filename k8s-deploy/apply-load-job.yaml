@@ -1,0 +1,16 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: apply-load-job
+spec:
+  template:
+    spec:
+      containers:
+      - name: apply-load
+        image: busybox
+        command:
+        - /bin/sh
+        - -c
+        - "while true; do wget -q -O- http://demo.local; done"
+      restartPolicy: Never
+  backoffLimit: 4
