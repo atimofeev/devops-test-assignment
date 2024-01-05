@@ -30,8 +30,8 @@ CMD "node index.js"
 #+begin_src dockerfile :tangle nodejs-app/Dockerfile
 FROM nginx:1.25.3
 
-RUN apt-get update && \
-    apt-get install -y nodejs=18.13.0+dfsg1-1
+RUN apt-get update && apt-get install -y \
+    nodejs=18.13.0+dfsg1-1
 
 WORKDIR /usr/src/app
 
@@ -54,17 +54,15 @@ CMD ["node", "index.js"]
 
 - Initialize Storage ::
 #+begin_src yaml :tangle k8s-deploy/init-storage.yaml
-apiVersion: v1
-kind: StorageClass
+---
 apiVersion: storage.k8s.io/v1
+kind: StorageClass
 metadata:
   name: my-storage-class
 provisioner: k8s.io/minikube-hostpath
 reclaimPolicy: Retain
 volumeBindingMode: Immediate
-
 ---
-
 apiVersion: v1
 kind: PersistentVolume
 metadata:
@@ -73,21 +71,17 @@ spec:
   storageClassName: my-storage-class
   capacity:
     storage: 1Gi
-  accessModes:
-    - ReadWriteOnce
+  accessModes: [ReadWriteOnce]
   hostPath:
-    path: "/tmp/kube-data/pv0001"
-
+    path: /tmp/kube-data/pv0001
 ---
-
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: nginx-data
 spec:
   storageClassName: my-storage-class
-  accessModes:
-    - ReadWriteOnce
+  accessModes: [ReadWriteOnce]
   resources:
     requests:
       storage: 500M
@@ -95,6 +89,7 @@ spec:
 
 - Deploy Application ::
 #+begin_src yaml :tangle k8s-deploy/deploy-app.yaml
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -110,26 +105,24 @@ spec:
         app: nginx
     spec:
       containers:
-      - name: nginx
-        image: nginx:stable
-        ports:
-        - containerPort: 80
-          name: http-port
-        resources:
-          requests:
-            cpu: "100m"
-          limits:
-            cpu: "200m"
-        volumeMounts:
-        - mountPath: /usr/share/nginx/html
-          name: nginx-data
+        - name: nginx
+          image: nginx:stable
+          ports:
+            - containerPort: 80
+              name: http-port
+          resources:
+            requests:
+              cpu: 100m
+            limits:
+              cpu: 200m
+          volumeMounts:
+            - mountPath: /usr/share/nginx/html
+              name: nginx-data
       volumes:
-      - name: nginx-data
-        persistentVolumeClaim:
-          claimName: nginx-data
-
+        - name: nginx-data
+          persistentVolumeClaim:
+            claimName: nginx-data
 ---
-
 apiVersion: v1
 kind: Service
 metadata:
@@ -139,34 +132,30 @@ spec:
   selector:
     app: nginx
   ports:
-  - name: http-port
-    protocol: TCP
-    port: 8080
-    targetPort: http-port
-
+    - name: http-port
+      protocol: TCP
+      port: 8080
+      targetPort: http-port
 ---
-
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: nginx-ingress
-  namespace: default
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
 spec:
-  ingressClassName: nginx
   rules:
-  - host: demo.local
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: nginx-service
-            port:
-              number: 8080
-
+    - host: demo.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nginx-service
+                port:
+                  number: 8080
 ---
-
 apiVersion: autoscaling/v1
 kind: HorizontalPodAutoscaler
 metadata:
@@ -188,6 +177,7 @@ kubectl cp k8s-deploy/index.html <pod>:/usr/share/nginx/html/
 
 - Apply load ::
 #+begin_src yaml :tangle k8s-deploy/apply-load-job.yaml
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -196,12 +186,12 @@ spec:
   template:
     spec:
       containers:
-      - name: apply-load
-        image: busybox
-        command:
-        - /bin/sh
-        - -c
-        - "while true; do wget -q -O- http://demo.local; done"
+        - name: apply-load
+          image: busybox
+          command:
+            - /bin/sh
+            - -c
+            - while true; do wget -q -O- http://demo.local; done
       restartPolicy: Never
   backoffLimit: 4
 #+end_src
